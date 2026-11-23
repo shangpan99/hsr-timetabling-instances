@@ -1,0 +1,6 @@
+# Python 3.10 or newer. A Gurobi license covering the full models is required.
+pandas>=1.5
+numpy>=1.23
+gurobipy>=10.0
+psutil>=5.9
+# SciPy is optional for legacy generator modes, not needed for unique_score.

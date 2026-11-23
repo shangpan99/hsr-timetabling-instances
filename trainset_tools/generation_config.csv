@@ -1,0 +1,66 @@
+﻿section,parameter,value,unit,description
+input,trains,data/trains_344_original.csv,path,相对本config的路径；每次直接使用原始数据
+input,stations,data/stations.csv,path,相对本config的路径；每次直接使用原始数据
+input,segments,data/segments.csv,path,相对本config的路径；每次直接使用原始数据
+input,time_format,minutes,minutes/seconds/hhmm,整合主实验固定使用数值分钟，不支持在此改为秒或时分字符串
+input,unwrap_midnight,FALSE,boolean,HH:MM跨日是否自动展开；输入顺序必须正确，优先直接提供超过24的小时
+input,missing_type_policy,legacy_id,legacy_id/error,当前数据沿用原实验车次数字1至50为350其余300；更换数据建议error
+columns,id,车次,column,列车输入字段映射
+columns,station,车站,column,列车输入字段映射
+columns,sequence,站序,column,列车输入字段映射
+columns,arrival,到达时间,column,列车输入字段映射
+columns,departure,出发时间,column,列车输入字段映射
+columns,stop,是否停站,column,列车输入字段映射
+columns,type,train_type,column,列车输入字段映射
+columns,direction,方向,column,列车输入字段映射
+columns,extra_absolute_time_fields,,semicolon columns,其他需要随整列车平移的绝对时刻列；持续时间字段不要填入
+generation,target_sizes,200;300;400;500;600,trains,五个规模均直接从原始数据生成
+generation,groups_per_size,10,groups,每个规模十组；合计50组
+generation,seed,32,integer,固定评分和具体分钟的种子；仅接受唯一最优结果；超时停止而不换种子
+generation,max_attempts_per_group,8,attempts,已证明时间分配无解或组重复时按固定规则重试；超时不换种子；绝不放宽B要求
+generation,allow_time_only_difference,TRUE,boolean,同一组成但相对时刻不同可算不同组；共同平移不算
+generation,output_root,../instances,path,生成组位于主实验根目录instances/K200_G01等；本配置在trainset_tools中，故使用../instances
+copy,cap_mode,adaptive,adaptive/fixed,K>N时每个原始模板至少一份
+copy,extra_allowance,2,occurrences,adaptive上限=ceil(K/N)+本值，指总出现次数而非额外次数
+copy,max_total_occurrences,4,occurrences,仅在fixed模式生效
+copy,balance_weight,0.5,weight,random_cost组成求解模式下软性减少复制集中；feasibility模式不使用此目标
+time,movable,all,all/copies_only,默认所有生成列车均可整体平移
+time,operating_start,auto,minutes or HH:MM,auto为原始最早有效到发事件；当前为06:10
+time,operating_end,auto,minutes or HH:MM,auto为原始最晚有效到发事件；当前为23:49；可填25:00表示次日
+time,max_shift_minutes,unlimited,minutes/unlimited,不设额外上限；整列车仍必须放入运营时段
+time,grid_minutes,1,minutes,整列车平移量的步长；不改变原模板内部秒数
+time,lock_source_entry_bin,FALSE,boolean,是否禁止单列车跨原进入时段；默认关闭
+time,bin_minutes,60,minutes,分时比例的时间格；以0分钟为格点起点
+time,period_edges,600;840;1080,minutes,重要大时段分界：10点/14点/18点；两端由运营时段限定
+coverage,required_families,train_type;stop_group;route_span,families,要求原始存在的车型/停站数组/最长径路和其他径路每组有代表
+coverage,top_od_count,6,categories,原始数量最多的前六种入口出口组合每组至少一列；0关闭
+coverage,entry_periods,TRUE,boolean,每个原始有车的大时段均保留代表
+coverage,required_source_ids,,semicolon IDs,默认不强制具体原车；可按需填源车次
+features,count_families,train_type;direction;od;path;od_type;stop_pattern;od_type_pattern;stop_count;stop_group;segment_count;station_visit;station_type;station_origin;station_destination;station_stop;station_pass;segment;segment_type_state,families,B类数量配额：每个类别按K/N缩放再取上下相邻整数
+features,station_stop_rates,TRUE,boolean,停站率分母只含中间经过的停站加通过；不含首末站
+features,mean_families,travel;run;dwell;run_total;dwell_total;dwell_station_type;run_segment_type_state,families,B均值；停站和区间时间按事件加权，旅行及累计时间按列车加权
+features,cdf_families,travel;run;dwell;dwell_station_type;run_segment_type_state,families,B分布：比较原始分位点处累计比例；不声称完整分布完全相同
+features,cdf_quantiles,0.1;0.25;0.5;0.75;0.9,quantiles,原始分布截点；相同值自动合并
+features,conditional_min_events,10,events,条件分组原始事件少于此数时只记录为C；避免稀少组合被硬性锁死
+features,time_families,entry_bin;od_entry_bin;type_entry_bin;entry_period,families,依据生成后进入时刻；允许模板跨时段，保持组级分时构成
+tolerance,count_extra,0,trains/events,B数量在floor/ceil基础上额外放宽多少；默认0
+tolerance,time_count_extra,0,trains,B时间类别floor/ceil额外放宽量；未观测的联合时间类别仍为0
+tolerance,mean_percent,2,percent,总体均值相对误差；试运行设置，不是理论保证
+tolerance,conditional_mean_percent,10,percent,有足够原始事件的条件均值相对误差
+tolerance,mean_absolute_minutes,0,minutes,均值绝对容差；与相对容差取较大值
+tolerance,cdf_pp,5,percentage points,累计比例允许差5个百分点；不是相对百分之五
+tolerance,cdf_event_allowance,1,events,累计分布额外允许1个事件离散误差；与比例容差共同生效
+tolerance,station_stop_rate_pp,5,percentage points,条件停站率绝对百分点误差
+solver,backend,gurobi,gurobi,unique_score必须使用Gurobi；不自动回退其他求解器
+solver,time_limit_seconds,600,seconds per group,每组10分钟构建与求解总预算；含唯一性验证和重试；超时不接收临时解；报告写出另计
+solver,threads,8,threads,线程数只影响求解速度；最终输出必须通过唯一最优检查
+solver,proof_focus,0,0/1/2/3,默认搜索策略；3侧重收紧最优界；仅影响速度不改变案例选择规则
+solver,dual_search,FALSE,boolean,可选两路独立搜索并平分线程；有的组更快有的更慢；不足两线程时单路
+solver,relative_gap,0,ratio,unique_score要求零最优间隙；不影响特征误差容差
+solver,console_log,FALSE,boolean,是否打印求解器完整日志
+output,source_pair_details,FALSE,boolean,保存原始车车详细关系；约58996对
+output,generated_pair_details,FALSE,boolean,默认保存生成组车车汇总；打开可输出全部配对，文件较大
+output,near_gap_minutes,5,minutes,C类小间隔统计阈值；不是强制最小间隔
+tolerance,conditional_cdf_pp,10,percentage points,条件分组累计分布容差；总体CDF仍采用cdf_pp
+solver,composition_mode,unique_score,unique_score/feasibility/random_cost,固定整数评分加解池唯一性验证；同分时固定顺序精确决胜；统计约束与复制上限不变
+generation,overwrite_existing,TRUE,boolean,每次从原始数据重新生成；全部50组成功后再原子替换instances；失败保留原结果
