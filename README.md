@@ -1,112 +1,232 @@
 # HSR corridor timetabling: scripts and inputs
 
-Companion code and input instances for **Solving Large-Scale High-Speed Rail Corridor Timetabling via Primal–Dual Precedence Learning**.
+Companion code and inputs for **Solving Large-Scale High-Speed Rail Corridor Timetabling via Primal–Dual Precedence Learning**.
 
-This distribution contains 50 target instances on the Beijing–Shanghai corridor: 200, 300, 400, 500 and 600 trains, with 10 cases per size. Each case has 23 stations and 22 adjacent segments. It includes Direct MILP, Vote+LP, packing LP, IO+LP, TS, ALNS, target-instance generation and feasibility-checking code.
+The package contains 50 cases: K = 200, 300, 400, 500, 600, with groups G01–G10 at each size. Each case includes 23 stations and 22 segments. Methods include Direct MILP, Vote+LP, packing LP, IO+LP, TS and ALNS. Only scripts, settings, input data and documentation are distributed; runtime results are created locally.
 
-Only source code, input data, configurations and documentation are supplied. Precomputed solutions, learned precedences, restricted-instance solve results, logs, plots, tables and feasibility certificates are excluded. Running the programs creates new outputs locally. Original experiment inputs are preserved byte for byte.
+## Cite
 
-中文使用说明：[中文使用说明](#chinese-guide)。
+Please cite the accompanying manuscript and the [code repository](https://github.com/shangpan99/hsr-timetabling-instances). The archival DOI should be added here when assigned.
 
-## Contents
+## Directory layout
 
-| Path | Purpose |
-| --- | --- |
-| `instances/K200_G01/` … `instances/K600_G10/` | 50 target inputs; exactly `trains.csv`, `stations.csv`, `segments.csv` per case |
-| `trainset_tools/data/` | 344 original reference trains and corridor station/segment inputs |
-| `train_number_registry.csv` | Stable identifiers for source trains and their copies |
-| `case_plan.csv` | Main-method case selection and restricted-subset designs; all 50 cases enabled |
-| `config.csv` | Shared model and algorithm settings |
-| `hsr_pipeline.py` | Direct, restricted, vote, packing, inverse and full-fixing implementations |
-| `RUN_1_TO_6.py` | Main pipeline including Direct MILP |
-| `RUN_2_TO_6.py` | Main pipeline without Direct MILP |
-| `RUN_TS80_ALNS_FIXED.py` | TS and ALNS, all 50 cases and seeds 6–10 |
-| `RUN_500_600_DIRECT_3600.py` | Optional separate Direct-only batch for the 20 large cases |
-| `trainset_tools/` | Target generation, structural validation and operational feasibility checks |
-| `verify_inputs.py` | Dependency-free file-integrity, input-structure and Python-syntax checks |
-| `MANIFEST.csv` | Release file hashes, source-relative provenance and packaging changes |
-| `LICENSE` | MIT terms for software, configuration and documentation; CC BY 4.0 terms for input data |
+```text
+hsr-timetabling-instances/
+├── README.md
+├── LICENSE
+├── AUTHORS
+├── requirements.txt
+├── .gitignore
+├── settings/
+│   ├── config.csv
+│   ├── case_plan.csv
+│   └── generation_config.csv
+├── data/
+│   ├── instances/Kxxx_Gyy/{trains.csv,stations.csv,segments.csv}
+│   ├── reference/{trains_344_original.csv,stations.csv,segments.csv}
+│   └── train_number_registry.csv
+├── src/
+│   ├── hsr_pipeline.py
+│   ├── case_manager.py
+│   ├── config_loader.py
+│   ├── resume_manager.py
+│   ├── train_numbering.py
+│   └── trainset_tools/
+│       ├── __init__.py
+│       ├── feasibility_core.py
+│       └── hsrgen/
+│           ├── __init__.py
+│           ├── main.py
+│           ├── data.py
+│           ├── generate.py
+│           ├── constraints.py
+│           ├── solver.py
+│           ├── validate.py
+│           ├── unique.py
+│           └── report.py
+└── scripts/
+    ├── run_main.py
+    ├── run_method.py
+    ├── 1_run_direct.py
+    ├── run_ts_alns.py
+    ├── generate_instances.py
+    ├── collect_results.py
+    └── stages/
+        ├── check_inputs.py
+        ├── check_feasibility.py
+        ├── 2_solve_restricted.py
+        ├── 3_build_vote_fullfix.py
+        ├── 4_solve_packing_lp.py
+        ├── 5_solve_inverse.py
+        ├── 6_solve_fullfix.py
+        └── aggregate_results.py
+```
 
-The numbered stage scripts can also be run individually. `90.aggregate_all_results.py` and `91.COLLECT_ALL_CASES.py` summarize results produced by a local run; no such result files are included.
+`src/` contains reusable implementation modules. Run the entry points under `scripts/`. Each entry point locates the repository from its own file path, so it also works when invoked by absolute path from another working directory.
 
-## Environment
+## Installation
 
-Use Python 3.10 or newer and install the dependencies:
+Use Python 3.10 or newer. From the repository root:
 
 ```text
 python -m pip install -r requirements.txt
 ```
 
-Gurobi with a license supporting the full model sizes is required for MILP/LP solving and target generation. TS/ALNS use the supplied forward decoder; their embedded code is included in the single script. The packaged Windows path uses the Python decoder. The optional C++ accelerator is not supplied; the script falls back to Python when unavailable. The checked-in requirements specify compatibility floors, not an exact reconstruction of the historical environment.
+MILP/LP experiments, feasibility checks and case generation require Gurobi and a license supporting the model sizes. TS/ALNS use their bundled Python decoder. Their nine supporting Python modules are embedded in `scripts/run_ts_alns.py`; no external baseline source directory or C++ accelerator is required. Dependency versions in `requirements.txt` are compatibility floors.
 
-Run the following commands from this directory after extraction. All runtime paths are relative to the package.
+## Settings and paths
 
-## Check inputs without running experiments
+| File / setting | Purpose | Default |
+| --- | --- | --- |
+| `settings/config.csv` | Model, solver and sampling parameters | `key,value,description` format |
+| `settings/case_plan.csv` | Enabled cases and restricted-subset designs | All 50 cases enabled |
+| `settings/generation_config.csv` | Reference inputs and generation parameters | `section,parameter,value,unit,description` format |
+| `config.csv`: `output_root` | Root for all runtime results, relative to the repository root | `results` |
+| `generation_config.csv`: `generation.output_root` | Shared destination for generated cases and input directory for all experiments, relative to `settings/` | `../data/instances` |
+| `generation_config.csv`: `input.trains`, `input.stations`, `input.segments` | Reference data, relative to `settings/` | `../data/reference/...` |
 
-```text
-python -B verify_inputs.py
-python -B 00.CHECK_CONFIG_AND_DATA.py
-python -B RUN_1_TO_6.py --dry-run
-python -B RUN_TS80_ALNS_FIXED.py --check
-python -B trainset_tools/generate_trainsets.py --check
+The generation and experiment entry points use the same case directory. There is no separate regenerated-case directory to switch to. Absolute paths are also supported. Running from another working directory does not change the interpretation of these settings. The TS/ALNS `--out-dir` option is relative to the selected repository root.
+
+Direct budgets are independent, in seconds per case:
+
+```csv
+direct_time_limit_K200_400,1800,K200/K300/K400每个案例的Direct求解时限秒
+direct_time_limit_K500_600,3600,K500/K600每个案例的Direct求解时限秒
 ```
 
-The first command needs only Python's standard library. The other commands use the installed project dependencies. These checks do not optimize a timetable or create experiment outputs. `NOT_CHECKED` in a dry run means that no locally generated operational feasibility certificate exists yet; certificates are deliberately excluded from this distribution.
+Both values must be positive finite numbers. `run_main.py` and `1_run_direct.py` use the same rules. Their `--dry-run` output displays the effective Direct limit. Changing one group's budget does not change the other group's budget or its case signature. These settings do not change the limits of other methods.
 
-## Run the main experiments
+Each target uses 300 restricted instances: 60 local subsets of size 0.10K, 120 stratified subsets of size 0.20K and 120 coverage subsets of size 0.20K. Sampling uses seed 32. Restricted-instance solves have a 600-second limit; the packing, inverse and full-fixing limits are 1800 seconds. The released main-method configuration uses `alpha_list=1` and `main_alpha=1`.
 
-```text
-python trainset_tools/check_feasibility.py --selected-only
-python RUN_1_TO_6.py
-```
+## Check inputs and preview execution
 
-The first command performs operational feasibility solves and writes a new `instances/feasibility_results.csv`. It is required before the main pipeline. The second runs Direct, restricted-instance sampling/solving, Vote+LP, packing LP, structured inverse optimization and full fixing. Outputs are written under `outputs/Kxxx_Gyy/`.
-
-For IO+LP and Vote+LP without Direct, replace the second command with:
+These commands read inputs and settings without optimizing timetables or writing results:
 
 ```text
-python RUN_2_TO_6.py
+python -B scripts/stages/check_inputs.py
+python -B scripts/run_main.py --dry-run
+python -B scripts/1_run_direct.py --dry-run
+python -B scripts/stages/check_feasibility.py --selected-only --dry-run
+python -B scripts/run_ts_alns.py --check
+python -B scripts/generate_instances.py --check
 ```
 
-To select fewer main-method cases, set `enabled=FALSE` for other rows in `case_plan.csv` before both commands. Do not change the three input CSV files to select cases.
+`NOT_CHECKED` is expected before the first local feasibility check. No precomputed feasibility certificates are distributed. The experiment entry points automatically run missing or stale checks during a real run; `--dry-run` only previews this decision and never calls the feasibility solver.
 
-Each target uses 300 restricted instances: 60 local subsets of size 0.10K, 120 stratified subsets of size 0.20K and 120 coverage subsets of size 0.20K. The sampling seed is 32; the main packing-dual coefficient is 1. Restricted solves have a 600-second limit. The shared Direct limit is 1800 seconds, overridden to 3600 seconds for K=500 and K=600. Those overrides also apply to `1.solve_direct.py` and `RUN_1_TO_6.py`. Other main solve-stage limits remain 1800 seconds.
+## Run experiments
 
-The optional `RUN_500_600_DIRECT_3600.py` starts or resumes its own Direct-only output batch. Use `python RUN_500_600_DIRECT_3600.py --new-batch` for its first run, or `--new-batch --dry-run` to check the inputs. Subsequent invocations can use `--resume latest`. The original default attempts to resume and therefore needs an existing batch. This script is not necessary after a complete `RUN_1_TO_6.py` run.
-
-## Run TS and ALNS
+From the repository root, run the full pipeline directly:
 
 ```text
-python RUN_TS80_ALNS_FIXED.py
+python scripts/run_main.py
 ```
 
-This runs 50 cases × 2 methods × 5 seeds = 500 searches and writes `TS_ALNS/`. Seeds are 6, 7, 8, 9 and 10. The limit is 1800 seconds for K=200–400 and 3600 seconds for K=500–600. The original stagnation limits are TS 100 and ALNS 80 iterations after a feasible solution is found.
+The full pipeline runs Direct, restricted-instance sampling and solves, Vote precedence construction, packing LP, inverse optimization, full-fixing LPs and aggregation. Both Vote+LP and IO+LP are solved in the full-fixing stage; the Vote stage itself only constructs the precedence assignment. Each executed aggregation also refreshes cross-case tables. TS/ALNS run separately. To select fewer cases, edit the `enabled` column of `settings/case_plan.csv` before checking feasibility and solving.
 
-TS/ALNS case selection is independent of `case_plan.csv`: edit `K_VALUES` near the top of the script to choose train counts. `--methods TS` or `--methods ALNS` selects one method. `--seeds` selects from the configured seed group. Keep previous output in a different directory when changing experiment settings.
-
-## Regenerate target inputs (optional)
-
-The 50 ready-to-use target inputs are already included. To regenerate them from the original reference records:
+Alternative entry points, with the same automatic checks:
 
 ```text
-python trainset_tools/generate_trainsets.py
+python scripts/run_method.py
+python scripts/1_run_direct.py
 ```
 
-The release entry point uses the original `hsrgen` algorithms and generation settings, writes into a separate empty `regenerated_instances/` directory and preserves the distributed `instances/` and numbering registry. Use `--output-dir NEW_DIRECTORY` for another destination. `--sizes 200 --groups 1` generates the first group at that size. The default creates all 50 groups with the configured 600-second generation budget per group. Generation creates its own diagnostics and reports locally; these are not part of this distribution.
+`run_method.py` runs stages 2–6 and aggregation without Direct. With the distributed `after_direct_require_direct_result=FALSE`, it can run independently; the Direct fields in its aggregate tables are empty until Direct has been run. `1_run_direct.py` runs only Direct for enabled cases, including K500/K600. Both share the same inputs and output layout as `run_main.py`.
 
-Generation validates construction constraints. Operational feasibility of the target timetable is a separate step. `trainset_tools/check_feasibility.py` checks the published `instances/` directory used by the main pipeline.
+With the default `require_feasibility_pass=TRUE`, these three entries and the individual restricted/Vote/packing/inverse/full-fix entries validate inputs and configuration, then check operational feasibility before starting a case. A saved `FEASIBLE` record is reused only when its input and model fingerprints match. Missing, stale, unsuccessful or interrupted records trigger a new check. If that check returns `INFEASIBLE`, `UNKNOWN` or `ERROR`, no experiment stage starts for that case; the status is saved and `continue_on_error` controls whether to proceed to other selected cases. This check is outside the Direct and other experiment solver time budgets.
 
-## Data and scope
+The two standalone check scripts are optional: `check_inputs.py` performs input/configuration checks only; `check_feasibility.py --selected-only` explicitly rechecks the enabled cases even if a prior passing record exists. Both automatic and manual feasibility checks share the same implementation and `results/feasibility/feasibility_results.csv`. Unchanged passing records are not rewritten. Altering only Direct's time limit does not invalidate the feasibility certificate, although the experiment-result compatibility rules below still apply. Aggregation/collection do not perform feasibility solves. TS/ALNS retain their own input and result validators and do not require this Gurobi feasibility certificate.
 
-See [Input format](#input-format) for field definitions and [Manuscript experiment map](#manuscript-experiment-map) for the manuscript-to-code mapping. The reference event times in `trains.csv` are optimization inputs, not optimized timetable outputs. The distributed instance files, rather than regenerated files from a different environment, define the released benchmark.
+The main and method entry points can resume completed stages when inputs and effective settings match. If the inputs or parameters changed, select a new `output_root`; alternatively, `fresh_full_run=TRUE` resets selected case results when running the full main pipeline. It does not reset results for a Direct-only run.
 
-The package covers the experiments in the supplied manuscript. Unused seed-search launchers, alpha-sensitivity batches, partial-fixing experiments, historical archives and manuscript/figure files are omitted. The original optimization code is retained. Packaging changes are limited to relative output settings, size-dependent Direct budgets, enabling all five TS/ALNS sizes and a separate-destination generation entry point. `MANIFEST.csv` records individual changes and hashes; it excludes itself to avoid a circular checksum.
+TS and ALNS are run separately:
 
-Use `verify_inputs.py` to check the original distribution before editing files. It will intentionally report a checksum mismatch after a tracked input, configuration or script is changed. Full experiments can require substantial runtime and memory; adjust the configured worker/thread counts to the machine when needed and record those changes for runtime comparisons.
+```text
+python scripts/run_ts_alns.py
+```
+
+The default is 50 cases × 2 methods × 5 seeds = 500 searches. Seeds are 6–10. Search limits are 1800 seconds for K200–K400 and 3600 seconds for K500/K600; stopping patience is 100 non-improving feasible iterations for TS and 80 for ALNS. Change `K_VALUES` at the top of the script to select sizes; this selection is independent of `case_plan.csv`. `--methods TS` or `--methods ALNS` selects a method, and `--seeds` selects from the configured seed group. `--diagnostic-seconds` runs a short diagnostic in a separate diagnostic results folder.
+
+## Generate and overwrite cases
+
+The paper's 50 inputs are included. To regenerate and replace them:
+
+```text
+python scripts/generate_instances.py
+```
+
+To replace only K200_G01:
+
+```text
+python scripts/generate_instances.py --sizes 200 --groups 1
+```
+
+`--groups N` means groups G01 through GN for the selected sizes. Generation uses the same `data/instances/` directory that all experiment scripts read. Once all requested cases have been generated and checked, their `trains.csv`, `stations.csv` and `segments.csv` are replaced, and the numbering registry is updated. Unselected cases remain in place. If generation is incomplete, existing case inputs are retained. Generation logs, source snapshots and diagnostics are saved under `results/generation/<run-id>/`.
+
+After regeneration, experiment entries detect the changed inputs and automatically recheck operational feasibility before solving. Input fingerprints also detect incompatible experiment results: select a new result root or use the documented fresh-main reset before reusing an existing case-result directory. Generation checks construction constraints; it does not replace the operational feasibility solve.
+
+## Output locations
+
+The `results/` directory is created at runtime and is not included in the distributed folder:
+
+```text
+results/
+├── Kxxx_Gyy/
+│   ├── 00_parameters/
+│   ├── 00_timing/
+│   ├── 01_direct/
+│   ├── 02_samples/
+│   ├── 03_vote/
+│   ├── 04_packing/
+│   ├── 05_inverse/
+│   ├── 06_fullfix/
+│   └── 90_aggregate/
+├── _ALL_CASES/                    # Cross-case main-method tables
+├── TS_ALNS/                      # Baseline runs and comparisons
+├── feasibility/feasibility_results.csv
+├── generation/<run-id>/          # Generation logs, snapshots and diagnostics
+└── run_status.csv
+```
+
+Run `python scripts/collect_results.py` to collect existing single-case tables across cases, or use `--dry-run` to preview its destination without writing files. This scans the result folders, independently of the currently enabled rows in `case_plan.csv`; it does not rerun solvers or refresh stale single-case tables. `python scripts/run_ts_alns.py --summary` updates baseline summaries.
+
+In the table below, `C` means `results/Kxxx_Gyy/` for each enabled case. Paths assume the distributed settings.
+
+| Entry point under `scripts/` | Main output | Repeated execution |
+| --- | --- | --- |
+| `run_main.py` | `C/01_direct/` through `C/06_fullfix/`, then `C/90_aggregate/` and `results/_ALL_CASES/` | Reuses complete, compatible stages; resumes missing or invalid stages |
+| `run_method.py` | `C/02_samples/` through `C/06_fullfix/`, then `C/90_aggregate/` and `results/_ALL_CASES/` | Same restart rules; preserves Direct results |
+| `1_run_direct.py` | `C/01_direct/` | Explicitly reruns Direct and updates its files |
+| `run_ts_alns.py` | `results/TS_ALNS/Kxxx_Gyy/`; summary CSVs in `results/TS_ALNS/` | Skips verified completed case/method/seed runs; resumes unfinished runs |
+| `generate_instances.py` | Replaces selected inputs in `data/instances/`; reports in `results/generation/<run-id>/` | Regenerates selected cases; creates a new reports folder |
+| `collect_results.py` | `results/_ALL_CASES/` | Rewrites cross-case summary tables |
+| `stages/check_inputs.py` | Console only | Reads and checks inputs/configuration |
+| `stages/check_feasibility.py` | `results/feasibility/feasibility_results.csv` | Rechecks selected cases and replaces their rows; keeps other rows |
+| `stages/2_solve_restricted.py` | `C/02_samples/` | Reuses eligible subsets with `sample_resume=TRUE`; solves missing subsets and refreshes stage files |
+| `stages/3_build_vote_fullfix.py` | `C/03_vote/` | Rebuilds Vote precedence; does not solve the Vote+LP timetable |
+| `stages/4_solve_packing_lp.py` | `C/04_packing/` | Reruns packing LP |
+| `stages/5_solve_inverse.py` | `C/05_inverse/alpha_1/` and its parent summaries | Reruns inverse optimization for the configured alpha values |
+| `stages/6_solve_fullfix.py` | `C/06_fullfix/VOTE/`, `C/06_fullfix/IO_alpha_1/` and their parent summary | Reruns the Vote+LP and IO+LP timetable solves |
+| `stages/aggregate_results.py` | `C/90_aggregate/` and `results/_ALL_CASES/` | Rewrites single-case and cross-case tables from the currently saved stage results |
+
+Solving and per-case aggregation entries also update `C/00_parameters/`, `C/case_signature.json` and `C/resume_state.json`. Executed computational and aggregation stages append timing records to `C/00_timing/stage_timing_log.csv`. `results/run_status.csv` records the latest batch of the main, method, Direct or stage entry; it is replaced on a subsequent batch, rather than storing all run history. A completely skipped case retains its stage files. Timetable CSVs are produced only when a usable solution is available; inspect the corresponding summary's solver status and `has_solution` field.
+
+### Shared results and reruns
+
+The integrated and individual entry points write to the same case and stage directories. There are no separate `run_main` and `run_direct` result copies. With unchanged inputs/settings and `fresh_full_run=FALSE`:
+
+- **Direct first, then main:** main reuses the completed Direct result and runs the remaining stages.
+- **Main first, then Direct:** Direct is explicitly solved again in the same `01_direct/` directory. The method result files in stages 2–6 are retained. Its single-case aggregate is marked for refresh; a subsequent main run skips Direct and stages 2–6 and updates aggregation.
+- **Main again, without changes:** all verified completed stages are skipped. A normal time-limit result can count as complete even if it is not proven optimal.
+- **Method after main:** Direct is retained and verified completed method stages are skipped.
+- **An individual method stage is rerun:** its shared checkpoint is updated; dependent downstream stages are marked pending. Continue with main or method to recompute those dependent stages. An interruption is recorded before old stage results can be reused.
+
+After a standalone Direct rerun, `python scripts/stages/aggregate_results.py` also refreshes both individual and cross-case tables without running method solvers. Direct by itself does not update these tables. Main's aggregation calls the cross-case collection function automatically; a separate `collect_results.py` run is only needed to rebuild cross-case tables from the existing single-case tables (for example, if all main stages were skipped and the cross-case tables need to be recreated).
+
+Changing inputs or experiment parameters (including an effective Direct time limit) blocks reuse of incompatible case results. Choose a new `output_root`, or explicitly set `fresh_full_run=TRUE` and run main to clear and rebuild the selected **entire case folders**. The reset does not clear the separate `TS_ALNS/`, `feasibility/` or `generation/` folders, and does not apply to Direct-only or method-only entries. Restore `fresh_full_run=FALSE` afterward if subsequent main runs should resume. Do not run overlapping entries concurrently for the same cases and output directory.
 
 ## License
 
-Software, configurations, documentation and release metadata are licensed under the MIT License. Input CSV files in `instances/` and `trainset_tools/data/`, together with `train_number_registry.csv`, are licensed under Creative Commons Attribution 4.0 International (CC BY 4.0). See [LICENSE](LICENSE) for the scope and full terms. External dependencies retain their own licenses.
+Code, settings and documentation use the MIT License. Input CSVs under `data/instances/` and `data/reference/`, and `data/train_number_registry.csv`, use CC BY 4.0. See `LICENSE` for the full terms. Third-party dependencies retain their own licenses.
 
 ## Input format
 
@@ -150,108 +270,41 @@ Each row is one directed adjacent segment. `from` and `to` identify its endpoint
 
 ### Reference inputs and configurations
 
-`trainset_tools/data/trains_344_original.csv` contains the 344 source reference trains used to construct the targets. The source data may omit `train_type`; `generation_config.csv` explicitly selects the historical `legacy_id` policy for these reference records. Every distributed target row includes its explicit `train_type`.
+`data/reference/trains_344_original.csv` contains the 344 source reference trains used to construct the targets. The source data may omit `train_type`; `generation_config.csv` explicitly selects the historical `legacy_id` policy for these reference records. Every distributed target row includes its explicit `train_type`.
 
-`train_number_registry.csv` maps `source_id` and `copy_index` to `train_id`. Copy index 0 retains the original train number. Positive indices map to distinct copy numbers; the registry is input to repeatable numbering.
+`data/train_number_registry.csv` maps `source_id` and `copy_index` to `train_id`. Copy index 0 retains the original train number. Positive indices map to distinct copy numbers; the registry is input to repeatable numbering.
 
-`config.csv` uses `key,value,description`. `case_plan.csv` contains the selected targets and subset sizes/counts. `trainset_tools/generation_config.csv` uses `section,parameter,value,unit,description` and contains source paths, generation seed, statistical controls, operating range and generation solver settings.
+`settings/config.csv` uses `key,value,description`. `settings/case_plan.csv` contains the selected targets and subset sizes/counts. `settings/generation_config.csv` uses `section,parameter,value,unit,description` and contains source paths, generation seed, statistical controls, operating range and generation solver settings.
 
 Restricted instances are train subsets generated during stage 2. Their sampling rules, sizes, allocation and seed are supplied as inputs. Their solved timetables, precedence observations and lower bounds are runtime products and are not included.
 
-## Manuscript experiment map
-
-| Manuscript component | Entry point / implementation | Inputs |
-| --- | --- | --- |
-| Computational experiments: 50 targets | `case_plan.csv`, `instances/` | Five sizes, ten groups each |
-| Direct MILP | `1.solve_direct.py`, `hsr_pipeline.py` | Per-case three CSVs; Direct budgets in `config.csv` |
-| Restricted-instance evidence | `2.solve_restricted_instances.py` | Sampling seed 32; local/stratified/coverage design in the case plan |
-| Vote+LP | `3.build_vote_fullfix.py` | Target inputs and newly computed stage-2 observations |
-| Packing lower bound and dual train prices | `4.solve_packing_lp.py` | Newly computed restricted-instance bounds |
-| Structured precedence learning | `5.solve_inverse_all_alpha.py` | Observations, packing duals; `alpha_list=1` |
-| IO+LP full fixing | `6.solve_fullfix_all_alpha.py` | Target input and newly learned complete precedence |
-| Runtime decomposition and aggregation | `RUN_1_TO_6.py`, `RUN_2_TO_6.py`, `90.aggregate_all_results.py`, `91.COLLECT_ALL_CASES.py` | Stage timing/results generated by the local run |
-| Large-case Direct rerun | `RUN_500_600_DIRECT_3600.py` | K500/K600 inputs; 3600 seconds each |
-| Appendix A.1 station and segment parameters | `stations.csv`, `segments.csv` in each case | Preserved experimental infrastructure inputs |
-| Appendix A.2 target-instance construction | `trainset_tools/generate_trainsets.py`, `trainset_tools/hsrgen/` | 344 references, generation configuration and numbering registry |
-| Appendices A.3–A.4 multi-scale pool design and train-subset sampling | `hsr_pipeline.py` stage 2 | 60 local (0.10K), 120 stratified (0.20K), 120 coverage (0.20K) |
-| Appendix B structured-learning solution procedure | `hsr_pipeline.py` inverse stage | Structural aggregation and dynamic triangle constraints |
-| Appendix C heuristic baselines (TS/ALNS) | `RUN_TS80_ALNS_FIXED.py` | Same target cases; seeds 6, 7, 8, 9, 10 |
-| Appendix D instance-level runtime decomposition | `RUN_1_TO_6.py`, `RUN_2_TO_6.py`, `90.aggregate_all_results.py`, `91.COLLECT_ALL_CASES.py` | Stage timings and aggregate runtime records generated by the local run |
-| Operational feasibility checks | `trainset_tools/check_feasibility.py` | Selected target inputs and shared model configuration |
-
-Later pipeline stages depend on files produced by earlier stages. They do not require precomputed research outputs from the original workspace. The full pipeline regenerates these intermediate files.
-
-The standalone TS/ALNS file contains all nine of its Python support modules as source strings; no external baseline package is required. Some historical module comments use earlier appendix labels. Use the current manuscript mapping above.
-
-The 3600-second Direct entry point is retained for the separate large-case workflow. The main entry points also use these budgets through explicit per-size configuration, so a new full run needs no separate Direct rerun.
-
-<a id="chinese-guide"></a>
-
 ## 中文使用说明
 
-本文件夹对应论文 *Solving Large-Scale High-Speed Rail Corridor Timetabling via Primal–Dual Precedence Learning*，可作为 GitHub 仓库文件使用。
+三个配置文件集中放在 `settings/`，算法和公共模块放在 `src/`，运行入口放在 `scripts/`。`AUTHORS` 按当前要求保留为空文件。
 
-包含 200、300、400、500、600 列车五种规模，每种 10 组，共 50 组算例。每组仅保留 `trains.csv`、`stations.csv`、`segments.csv` 三份输入。另包含 344 列原始参考列车、生成配置、车次编号库，以及 Direct MILP、Vote+LP、IO+LP、TS、ALNS 的运行脚本。
-
-包内不含求解结果、运行图、日志、图片、统计结果表、缓存或已有可行性检查结果。脚本运行后仍会正常生成新的输出文件；“不含输出”指此次交付和上传的文件范围。所有算例输入均与原实验文件逐字节一致。
-
-### 最快开始
-
-解压后，在本文件夹打开终端，使用 Python 3.10 或更高版本：
+所有命令均可在项目根目录执行；也可以从其他工作目录使用脚本的绝对路径运行。
 
 ```text
 python -m pip install -r requirements.txt
-python -B verify_inputs.py
+python scripts/run_main.py
 ```
 
-求解主实验和生成算例需要能处理完整模型规模的 Gurobi 许可证。只运行 `verify_inputs.py` 不需要安装任何第三方依赖。
+只运行方法流程用 `python scripts/run_method.py`；只运行 Direct 用 `python scripts/1_run_direct.py`；TS/ALNS 用 `python scripts/run_ts_alns.py`。主实验与 Direct 通过 `settings/case_plan.csv` 选择案例，TS/ALNS 通过脚本顶部的 `K_VALUES` 选择规模。
 
-检查主实验配置和 TS/ALNS 输入，不启动实验：
+`settings/config.csv` 中的 `direct_time_limit_K200_400` 默认 1800 秒，`direct_time_limit_K500_600` 默认 3600 秒，两组分别修改。主流程和 Direct 单独入口共用规则。
 
-```text
-python -B 00.CHECK_CONFIG_AND_DATA.py
-python -B RUN_1_TO_6.py --dry-run
-python -B RUN_TS80_ALNS_FIXED.py --check
-```
+**运行 `python scripts/generate_instances.py` 会重新生成并覆盖 `data/instances/` 中对应案例的三份输入 CSV。** `--sizes 200 --groups 1` 只替换 K200_G01。全部请求案例生成和校验成功后才覆盖，未完成时保留现有案例。生成后的案例就是主脚本和 benchmark 下一次读取的输入，不需要手动搬移或切换目录。
 
-由于不携带已有可行性检查结果，首次预览显示 `NOT_CHECKED` 是正常的。
+生成位置与实验读取位置统一取自 `settings/generation_config.csv` 的 `generation.output_root`，默认 `../data/instances`，相对 `settings/` 解析。其 `input.*` 路径也相对 `settings/` 解析。`settings/config.csv` 的 `output_root` 默认 `results`，相对项目根目录解析。
 
-### 运行论文实验
+主实验输出位于 `results/Kxxx_Gyy/`，TS/ALNS 位于 `results/TS_ALNS/`，可行性记录位于 `results/feasibility/`，生成日志和统计位于 `results/generation/<run-id>/`。发布文件夹不附带这些结果。只预览路径和配置时，主入口使用 `--dry-run`，生成器和 TS/ALNS 使用 `--check`，均不求解或写入结果。
 
-先独立检查可行性，再运行完整主实验：
+重新生成输入后，求解入口会根据输入指纹自动重新检查可行性，不需要手动先运行检查脚本。旧实验结果是否可复用仍由输入与参数指纹检查；若输入或实验参数已改变，可修改 `output_root` 使用新的结果目录。目录中每个案例的 `trains.csv` 是参考时刻等模型输入，不是求解后的运行图。
 
-```text
-python trainset_tools/check_feasibility.py --selected-only
-python RUN_1_TO_6.py
-```
+**正常运行：**直接运行 `run_main.py`，它会先核对输入和配置，再复用或自动生成可行性检查记录，通过后执行实验。`run_method.py`、`1_run_direct.py` 及原本要求可行性通过的五个分步入口共用此逻辑。`check_inputs.py` 和 `check_feasibility.py` 保留为可选的独立检查入口。输入、模型参数和通过记录不变时，不会重复求解可行性模型；没有记录、记录失效或上次未通过时才重新检查。检查未通过的案例不进入实验阶段，可行性检查时间不计入 Direct 的 1800/3600 秒预算。
 
-只运行所提方法及 Vote 对照、不运行 Direct 时，第二条改成 `python RUN_2_TO_6.py`。主实验由 `case_plan.csv` 的 `enabled` 列控制选中案例，默认全部启用。K=500/600 的 Direct 时限已接入 3600 秒，其余规模为 1800 秒。主实验输出写入 `outputs/`。
+TS/ALNS 独立运行，保留自身的数据与解校验，不依赖上述 Gurobi 可行性记录。使用已附带的 50 组输入时，不必运行生成脚本。主流程按 Direct → 子实例求解 → Vote 定序 → Packing LP → 逆优化 → Full-fix LP → 单案例汇总执行，每次执行单案例汇总还会刷新跨案例总表。`collect_results.py` 用于单独重建跨案例总表。Vote+LP 和 IO+LP 的最终求解都在 Full-fix 阶段，`3_build_vote_fullfix.py` 只构造 Vote 定序。
 
-TS/ALNS 单独运行：
+**共用结果与覆盖：**`run_main.py` 包含 `1_run_direct.py` 对应的计算阶段，两者共用 `results/Kxxx_Gyy/01_direct/`。主入口默认续跑、跳过有效完成阶段；单独运行 Direct 会重新求解并更新该目录的结果文件，保留阶段 2–6 的文件。随后运行主入口，会复用刚完成的 Direct，仅刷新受影响的汇总。也可以直接运行 `stages/aggregate_results.py` 更新两级汇总。单独重跑其他阶段后，主入口会补跑其受影响的后续阶段。
 
-```text
-python RUN_TS80_ALNS_FIXED.py
-```
-
-默认覆盖全部 50 组，每个方法使用 6、7、8、9、10 五个种子，共 500 次搜索，输出写入 `TS_ALNS/`。TS/ALNS 通过脚本顶部 `K_VALUES` 选择规模，不读取 `case_plan.csv` 的启用列。
-
-只想重跑 20 个大规模 Direct，首次运行 `python RUN_500_600_DIRECT_3600.py --new-batch`；以后可加 `--resume latest` 续跑。原脚本默认查找已有批次，因此首次需明确使用 `--new-batch`。完整主实验已经按规模设置时限，不需要再重复运行此独立入口。
-
-### 重新生成算例
-
-已提供全部算例，无需先重新生成。需要从 344 列原始输入重新生成时运行：
-
-```text
-python trainset_tools/generate_trainsets.py
-```
-
-新生成内容放入独立的 `regenerated_instances/`，不覆盖随包输入。该目录必须为空；可用 `--output-dir` 指定新的目录。只检查生成器输入可加 `--check`，不会求解或写文件。
-
-### 文件说明
-
-- 本 `README.md`：中英文安装与运行说明；[输入字段解释](#input-format)；[文章实验与脚本对应关系](#manuscript-experiment-map)。
-- `MANIFEST.csv`：文件来源、SHA-256 校验值及必要的打包调整记录。
-- `.gitignore`：避免后续运行结果、日志及缓存被加入 Git。
-- `LICENSE`：代码、配置和文档采用 MIT 许可证；`instances/`、`trainset_tools/data/` 内的输入 CSV 及 `train_number_registry.csv` 采用 CC BY 4.0 许可证。
-
-未纳入当前文章的 alpha 敏感性、部分固定和历史试验目录。校验程序会检查原始交付文件的完整性；自行修改配置或脚本后出现哈希不一致属于预期行为。
+`run_method.py` 默认可以独立运行，覆盖的是主流程中的阶段 2–6 和单案例汇总；它保留已有 Direct。此处的“包含阶段”不等于“每次全部覆盖”：是否重算取决于入口和续跑状态。只有主入口在 `fresh_full_run=TRUE` 时才清空所选案例的整个结果目录；修改 Direct 时限等参数后，不能直接混用旧配置结果。各入口、主要输出及重复运行规则见上面的输出位置表。

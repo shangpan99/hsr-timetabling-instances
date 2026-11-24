@@ -11,9 +11,11 @@ import math
 import shutil
 import sys
 import traceback
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 from config_loader import load_config, as_bool, project_root
 from trainset_tools.hsrgen.data import Config
@@ -55,7 +57,7 @@ def resolve_path(value):
 
 
 def load_common():
-    cfg = load_config(ROOT / 'config.csv')
+    cfg = load_config(ROOT / 'settings/config.csv')
     conflict = CASE_KEYS.intersection(cfg)
     if conflict:
         raise ValueError('Per-case settings belong to case_plan.csv, not config.csv: ' + ', '.join(sorted(conflict)))
@@ -67,16 +69,31 @@ def load_common():
     return cfg
 
 
-def instance_root():
-    g = Config(ROOT / 'trainset_tools' / 'generation_config.csv')
-    p = g.path_value('generation.output_root')
-    if p is None or p == ROOT or p in ROOT.parents:
-        raise ValueError('generation.output_root must be a dedicated directory, e.g. instances')
-    for source in ('trains', 'stations', 'segments'):
-        src = g.path_value('input.' + source)
-        if src and (src == p or p in src.parents):
-            raise ValueError('Generation output cannot contain its own input source files')
-    return p
+def instance_root(common=None):
+    generation = Config(ROOT / 'settings/generation_config.csv')
+    path = generation.path_value('generation.output_root')
+    if path is None or path == ROOT or path in ROOT.parents:
+        raise ValueError('generation.output_root must be a dedicated input directory')
+    protected = [ROOT / part for part in ('src', 'scripts', 'settings')]
+    protected.append(ROOT / 'data/reference')
+    if any(path == p or path in p.parents or p in path.parents for p in protected):
+        raise ValueError('generation.output_root must be separate from source, settings and reference data')
+    return path
+
+
+def results_root(common=None):
+    common = load_common() if common is None else common
+    path = resolve_path(common.get('output_root', 'results'))
+    protected = [ROOT / part for part in ('data', 'src', 'scripts', 'settings')]
+    protected.append(instance_root(common))
+    if path == ROOT or path in ROOT.parents or any(
+            path == p or path in p.parents or p in path.parents for p in protected):
+        raise ValueError('output_root must be separate from source code, settings and input data')
+    return path
+
+
+def feasibility_results_path(common=None):
+    return results_root(common) / 'feasibility' / 'feasibility_results.csv'
 
 
 @dataclass(frozen=True)
@@ -108,7 +125,7 @@ class Case:
 
 
 def read_cases(selected=True):
-    path = ROOT / 'case_plan.csv'
+    path = ROOT / 'settings/case_plan.csv'
     with path.open(encoding='utf-8-sig', newline='') as f:
         reader = csv.DictReader(f)
         if reader.fieldnames != PLAN_FIELDS:
@@ -152,7 +169,7 @@ def write_csv_atomic(path, rows, fields):
 
 def sync_case_plan(sizes, groups):
     # Existing settings are never overwritten. Newly added cases start disabled.
-    path = ROOT / 'case_plan.csv'
+    path = ROOT / 'settings/case_plan.csv'
     existing = read_cases(False) if path.exists() else []
     keys = {c.case_id for c in existing}
     added = False
@@ -169,8 +186,30 @@ def sync_case_plan(sizes, groups):
         write_csv_atomic(path, [c.row() for c in existing], PLAN_FIELDS)
 
 
+def direct_time_limit_for_case(common, k):
+    """Resolve the two manuscript budgets, with legacy CSV compatibility."""
+    groups = (
+        ('direct_time_limit_K200_400', (200, 300, 400)),
+        ('direct_time_limit_K500_600', (500, 600)),
+    )
+    for key, sizes in groups:
+        if k in sizes and key in common:
+            try:
+                seconds = float(common[key])
+            except (TypeError, ValueError):
+                raise ValueError(f'{key} must be a positive finite number of seconds') from None
+            if isinstance(common[key], bool) or not math.isfinite(seconds) or seconds <= 0:
+                raise ValueError(f'{key} must be a positive finite number of seconds')
+            return seconds
+    # Older configurations used a shared limit and optional per-size overrides.
+    return common.get(f'direct_time_limit_K{k}', common.get('direct_time_limit', 1800))
+
+
 def effective_config(common, case):
-    cfg = dict(common)
+    # Keep only the resolved Direct limit in each case's settings/signature.
+    # Editing the other size group's budget must not invalidate this case.
+    cfg = {key: value for key, value in common.items()
+           if not key.startswith('direct_time_limit_K')}
     cfg.update(train_limit=case.k, sample_size=max(case.local, case.stratified, case.coverage),
                sampling_local_size=case.local, sampling_stratified_size=case.stratified,
                sampling_coverage_size=case.coverage,
@@ -179,13 +218,11 @@ def effective_config(common, case):
                sampling_stratified_count=case.stratified_count,
                sampling_coverage_count=case.coverage_count,
                sample_count=case.sample_count, instance_tag=case.case_id,
-               create_case_subfolder=True, data_dir=str(instance_root() / case.case_id),
-               output_root=str(resolve_path(common.get('output_root', 'outputs'))))
-    # Manuscript budgets: 1800 s for K<=400, 3600 s for K=500/600.
-    cfg['direct_time_limit'] = common.get(
-        f'direct_time_limit_K{case.k}', cfg.get('direct_time_limit', 1800))
+               create_case_subfolder=True, data_dir=str(instance_root(common) / case.case_id),
+               output_root=str(results_root(common)))
+    cfg['direct_time_limit'] = direct_time_limit_for_case(common, case.k)
     inp, out = Path(cfg['data_dir']), Path(cfg['output_root'])
-    ir = instance_root()
+    ir = instance_root(common)
     if out == ROOT or out in ROOT.parents or out == ir or out in ir.parents or ir in out.parents:
         raise ValueError('output_root must be separate from source code and generated input directories')
     return cfg
@@ -202,7 +239,7 @@ def input_fingerprint(folder, expected_k=None):
     for name in ('trains.csv', 'stations.csv', 'segments.csv'):
         p = folder / name
         if not p.is_file():
-            raise FileNotFoundError(f'{p} is missing; run trainset_tools/generate_trainsets.py first')
+            raise FileNotFoundError(f'{p} is missing; run scripts/generate_instances.py first')
         hashes[name] = hashlib.sha256(p.read_bytes()).hexdigest()
     with (folder / 'trains.csv').open(encoding='utf-8-sig', newline='') as f:
         rows = list(csv.DictReader(f))
@@ -221,8 +258,8 @@ def model_fingerprint(cfg):
                    **{k: cfg[k] for k in MODEL_KEYS}})
 
 
-def feasibility_records():
-    path = instance_root() / 'feasibility_results.csv'
+def feasibility_records(common=None):
+    path = feasibility_results_path(common)
     if not path.exists():
         return {}
     with path.open(encoding='utf-8-sig', newline='') as f:
@@ -238,11 +275,69 @@ def feasibility_state(case_id, cfg, input_sha, records):
     return row.get('result', 'UNKNOWN')
 
 
+def feasibility_settings(common):
+    settings = SimpleNamespace(
+        lp_seconds=float(common.get('feasibility_lp_seconds', 30)),
+        mip_seconds=float(common.get('feasibility_mip_seconds', 300)),
+        threads=positive_int(common.get('feasibility_threads', 1), 'feasibility_threads'),
+        candidates=positive_int(common.get('feasibility_candidates', 3), 'feasibility_candidates', 0))
+    if any(not math.isfinite(v) or v <= 0 for v in (settings.lp_seconds, settings.mip_seconds)) or settings.candidates > 3:
+        raise ValueError('Feasibility limits must be positive; candidates must be 0..3')
+    return settings
+
+
+def check_feasibility_groups(common, groups, *, reuse_passed=False, records=None):
+    """Shared automatic/manual check; persist only actual checks, case by case."""
+    settings = feasibility_settings(common)
+    records = feasibility_records(common) if records is None else records
+    tested = []
+    with ExitStack() as stack:
+        env = None
+        for folder, k, group in groups:
+            folder = Path(folder)
+            sha, status, stage, solver_status, message = '', 'ERROR', 'load_or_solve', '', ''
+            interrupted = False
+            try:
+                sha, _ = input_fingerprint(folder, k)
+                state = feasibility_state(folder.name, common, sha, records)
+                if reuse_passed and state == 'FEASIBLE':
+                    print(f'[FEASIBILITY REUSE] {folder.name}: matching FEASIBLE record', flush=True)
+                    tested.append(records[folder.name])
+                    continue
+                print(f'[FEASIBILITY CHECK] {folder.name}: previous={state}', flush=True)
+                if env is None:
+                    import gurobipy as gp
+                    candidate_env = stack.enter_context(gp.Env(empty=True))
+                    candidate_env.setParam('OutputFlag', 0)
+                    candidate_env.start()
+                    env = candidate_env
+                from trainset_tools.feasibility_core import load_data, check
+                data = load_data(folder, common)
+                status, stage, solver_status, message = check(data, gp, env, settings)
+                del data
+            except KeyboardInterrupt:
+                status, stage, message = 'UNKNOWN', 'interrupted', 'Interrupted by user'
+                interrupted = True
+            except Exception as exc:
+                message = f'{type(exc).__name__}: {exc}'
+            row = dict(zip(FEAS_FIELDS, [folder.name, k, group, status, stage, solver_status, message,
+                                       sha, model_fingerprint(common), datetime.now().isoformat(timespec='seconds')]))
+            records[folder.name] = row
+            tested.append(row)
+            write_csv_atomic(feasibility_results_path(common),
+                             sorted(records.values(), key=lambda r: (int(r['K']), int(r['group']))), FEAS_FIELDS)
+            print(f'  {status}: {message}', flush=True)
+            if interrupted:
+                raise KeyboardInterrupt
+            gc.collect()
+    return tested
+
+
 def run_signature(cfg, input_sha):
     # Execution-selection switches do not change experiment definitions.
     ignored = {'fresh_full_run', 'sample_resume', 'sample_clear_output', 'continue_on_error',
                'after_direct_require_direct_result', 'require_feasibility_pass',
-               'data_dir', 'output_root'}
+               'data_dir', 'output_root', 'instances_dir'}
     params = {k: v for k, v in cfg.items() if not k.startswith(('_', 'feasibility_')) and k not in ignored}
     return {'schema': SCHEMA, 'input_sha256': input_sha, 'parameters': params,
             'signature': digest({'schema': SCHEMA, 'input': input_sha, 'parameters': params})}
@@ -257,7 +352,7 @@ def check_saved_signature(outdir, stamp, allow_reset=False):
     old = json.loads(path.read_text(encoding='utf-8'))
     if old.get('signature') != stamp['signature']:
         raise ValueError(f'{outdir.name}: input or experiment parameters changed; do not reuse old results. '
-                         'Use a new output_root, or set fresh_full_run=TRUE and run RUN_1_TO_6.py')
+                         'Use a new output_root, or set fresh_full_run=TRUE and run scripts/run_main.py')
 
 
 def run_entry(action, argv=None):
@@ -266,6 +361,11 @@ def run_entry(action, argv=None):
     args = parser.parse_args(argv)
     common = load_common()
     if action == 'collect':
+        output = results_root(common)
+        if args.dry_run:
+            print(f'Collection output: {output / "_ALL_CASES"}')
+            print('Dry run complete. No solver was called. No files written.')
+            return 0
         import hsr_pipeline as hp
         print(hp.collect_all_case_rows(common))
         return 0
@@ -273,7 +373,7 @@ def run_entry(action, argv=None):
     if not cases:
         print('No enabled cases. Set enabled=TRUE in case_plan.csv.')
         return 0
-    records = feasibility_records()
+    records = feasibility_records(common)
     prepared = []
     for case in cases:
         cfg = effective_config(common, case)
@@ -283,10 +383,11 @@ def run_entry(action, argv=None):
         stamp = run_signature(cfg, sha)
         reset = action == 'full' and as_bool(cfg.get('fresh_full_run'), False)
         print(f'{case.case_id}: K={count}, Local={case.local}, Stratified={case.stratified}, '
-              f'Coverage={case.coverage}, feasibility={state}\n  input={cfg["data_dir"]}\n  output={outdir}', flush=True)
-        if not args.dry_run and action not in ('inspect', 'aggregate'):
-            if as_bool(cfg.get('require_feasibility_pass'), True) and state != 'FEASIBLE':
-                raise ValueError(f'{case.case_id}: feasibility={state}; run trainset_tools/check_feasibility.py with the current config first')
+              f'Coverage={case.coverage}, feasibility={state}\n'
+              f'  Direct TimeLimit={cfg["direct_time_limit"]} s\n'
+              f'  input={cfg["data_dir"]}\n  output={outdir}', flush=True)
+        if action not in ('inspect', 'aggregate') and as_bool(cfg.get('require_feasibility_pass'), True):
+            print(f'  automatic feasibility: {"REUSE" if state == "FEASIBLE" else "CHECK before solving"}', flush=True)
         if not args.dry_run and action != 'inspect':
             check_saved_signature(outdir, stamp, reset)
         prepared.append((case, cfg, outdir, stamp, reset))
@@ -306,19 +407,35 @@ def run_entry(action, argv=None):
         print('Dry run complete. No solver was called.')
         return 0
     import hsr_pipeline as hp
-    actions = {'direct': hp.run_direct, 'restricted': hp.run_restricted_instances,
-               'vote': hp.run_vote, 'packing': hp.run_packing,
-               'inverse': hp.run_inverse_all_alphas, 'fullfix': hp.run_fullfix_all_alphas}
+    stages = {'direct': 'direct', 'restricted': 'samples', 'vote': 'vote',
+              'packing': 'packing', 'inverse': 'inverse', 'fullfix': 'fullfix',
+              'aggregate': 'aggregate'}
     results = []
     fields = ['case_id', 'K', 'group', 'action', 'status', 'message', 'finished_at']
     for index, (case, cfg, outdir, stamp, reset) in enumerate(prepared, 1):
         print(f'\n[{index}/{len(prepared)}] {case.case_id}: {action}', flush=True)
         status, message = 'COMPLETED', ''
+        data = None
         try:
             ctx = hp.standalone_context(cfg)
             if action == 'method' and as_bool(cfg.get('after_direct_require_direct_result'), True):
                 if not (ctx.direct_dir / 'direct_summary.csv').is_file():
-                    raise FileNotFoundError('RUN_2_TO_6 requires a saved Direct result with the current settings')
+                    raise FileNotFoundError('scripts/run_method.py requires a saved Direct result with the current settings')
+            # The same input/config validation used by check_inputs runs before
+            # any automatic feasibility solve, reset, or experiment-stage write.
+            data = hp.HSRData(cfg)
+            validation = hp.validate_config(cfg, ctx, data)
+            if action == 'inspect':
+                print(f'Configuration/data PASS; sampling={validation["method_targets"]}; '
+                      f'alpha={validation["alpha_list"]}; no terminal-time upper bound.')
+                continue
+            if action != 'aggregate' and as_bool(cfg.get('require_feasibility_pass'), True):
+                checked = check_feasibility_groups(
+                    common, [(Path(cfg['data_dir']), case.k, case.group)], reuse_passed=True, records=records)[0]
+                if checked['result'] != 'FEASIBLE':
+                    raise ValueError(f'{case.case_id}: automatic feasibility={checked["result"]}; '
+                                     f'{checked["message"]}. No experiment stage was started. '
+                                     f'See {feasibility_results_path(common)}')
             if action in ('full', 'method') and not reset:
                 from resume_manager import ResumeManager
                 manager = ResumeManager(cfg, ctx, stamp['signature'], action)
@@ -327,12 +444,6 @@ def run_entry(action, argv=None):
                     status, message = 'SKIPPED_COMPLETED', 'All required stages already complete; existing results retained'
                     print(f'[SKIP CASE] {case.case_id}: {message}', flush=True)
                     continue
-            data = hp.HSRData(cfg)
-            validation = hp.validate_config(cfg, ctx, data)
-            if action == 'inspect':
-                print(f'Configuration/data PASS; sampling={validation["method_targets"]}; '
-                      f'alpha={validation["alpha_list"]}; no terminal-time upper bound.')
-                continue
             if reset and outdir.exists():
                 shutil.rmtree(outdir)
             outdir.mkdir(parents=True, exist_ok=True)
@@ -343,10 +454,10 @@ def run_entry(action, argv=None):
             if action in ('full', 'method'):
                 from resume_manager import ResumeManager
                 ResumeManager(cfg, ctx, stamp['signature'], action).run(hp, data)
-            elif action == 'aggregate':
-                hp.aggregate_experiment(cfg, ctx)
             else:
-                actions[action](cfg, ctx, data)
+                from resume_manager import ResumeManager
+                ResumeManager(cfg, ctx, stamp['signature']).run_stage(
+                    hp, data, stages[action], require_complete=False)
             del data
         except KeyboardInterrupt:
             status, message = 'INTERRUPTED', 'Interrupted by user'
@@ -360,7 +471,8 @@ def run_entry(action, argv=None):
             results.append(dict(zip(fields, [case.case_id, case.k, case.group, action, status,
                                              message, datetime.now().isoformat(timespec='seconds')])))
             if action != 'inspect':
-                write_csv_atomic(resolve_path(common.get('output_root', 'outputs')) / 'run_status.csv', results, fields)
+                write_csv_atomic(results_root(common) / 'run_status.csv', results, fields)
+            data = None
             gc.collect()
     # COMPLETED means that the stage returned; solver feasibility/status lives in its own summaries.
     return 1 if any(r['status'] not in ('COMPLETED', 'SKIPPED_COMPLETED') for r in results) else 0

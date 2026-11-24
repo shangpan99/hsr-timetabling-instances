@@ -205,6 +205,43 @@ class ResumeManager:
         tmp.write_text(json.dumps(self.state, ensure_ascii=False, indent=2), encoding='utf-8')
         tmp.replace(self.path)
 
+    def run_stage(self, pipeline, data, stage, *, require_complete=True):
+        """Run one requested stage and update the shared restart checkpoint."""
+        if stage not in self.stages:
+            raise ValueError(f'Unsupported stage: {stage}')
+        # Persist invalidation before starting, including standalone reruns.
+        # An interrupted attempt must never reuse its older result files.
+        dirty = {stage}
+        for other in self.stages:
+            if other in dirty or dirty.intersection(self._dependencies(other)):
+                dirty.add(other)
+                self.state['stages'][other] = {'status': 'pending'}
+        self.state['stages'][stage] = {'status': 'running'}
+        self._save()
+        print(f'[RUN] {self.ctx.experiment_tag}: {stage}', flush=True)
+        try:
+            function = getattr(pipeline, FUNCTIONS[stage])
+            if stage == 'aggregate':
+                function(self.cfg, self.ctx)
+            else:
+                function(self.cfg, self.ctx, data)
+            try:
+                snapshot, _ = self._snapshot(stage)
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                if require_complete:
+                    raise
+                # Standalone tools retain their solver-status semantics, but
+                # an incomplete result cannot be skipped by the main pipeline.
+                self.state['stages'][stage] = {'status': 'incomplete', 'reason': str(exc)}
+                print(f'[INCOMPLETE] {self.ctx.experiment_tag}: {stage}: {exc}', flush=True)
+            else:
+                self.state['stages'][stage] = {'status': 'complete', 'files': snapshot}
+            self._save()
+        except BaseException:
+            self.state['stages'][stage] = {'status': 'interrupted'}
+            self._save()
+            raise
+
     def run(self, pipeline, data):
         # The case manager verifies the input/config signature before entering.
         for stage in self.stages:
@@ -212,26 +249,4 @@ class ResumeManager:
             if ready[stage]:
                 print(f'[SKIP] {self.ctx.experiment_tag}: {stage} already complete', flush=True)
                 continue
-            # Persist invalidation before starting. Old result files must not
-            # masquerade as completed work after an interrupted rerun.
-            dirty = {stage}
-            for other in self.stages:
-                if other in dirty or dirty.intersection(self._dependencies(other)):
-                    dirty.add(other)
-                    self.state['stages'][other] = {'status': 'pending'}
-            self.state['stages'][stage] = {'status': 'running'}
-            self._save()
-            print(f'[RUN] {self.ctx.experiment_tag}: {stage}', flush=True)
-            try:
-                function = getattr(pipeline, FUNCTIONS[stage])
-                if stage == 'aggregate':
-                    function(self.cfg, self.ctx)
-                else:
-                    function(self.cfg, self.ctx, data)
-                snapshot, _ = self._snapshot(stage)
-                self.state['stages'][stage] = {'status': 'complete', 'files': snapshot}
-                self._save()
-            except BaseException:
-                self.state['stages'][stage] = {'status': 'interrupted'}
-                self._save()
-                raise
+            self.run_stage(pipeline, data, stage)

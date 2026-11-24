@@ -1,7 +1,5 @@
-# Runtime products
-/outputs*/
-/TS_ALNS*/
-/regenerated_instances*/
+# Runtime results
+/results/
 __pycache__/
 *.py[cod]
 *.log
@@ -19,10 +17,3 @@ __pycache__/
 venv/
 .env
 gurobi.lic
-# Keep only the three input CSV files per published instance.
-/instances/*
-!/instances/K*_G*/
-/instances/K*_G*/*
-!/instances/K*_G*/trains.csv
-!/instances/K*_G*/stations.csv
-!/instances/K*_G*/segments.csv

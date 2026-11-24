@@ -100,7 +100,7 @@ def run(cfg_path, sizes=None, groups=None, backend=None, destination=None, model
     if not sizes or any(k <= 0 for k in sizes) or len(set(sizes)) != len(sizes) or count <= 0:
         raise ValueError("Use distinct positive target sizes and a positive group count")
     if destination is None:
-        raise ValueError("Use generate_trainsets.py to publish complete flat-layout instances")
+        raise ValueError("Use scripts/generate_instances.py to publish complete flat-layout instances")
     run_dir = Path(destination)
     run_dir.mkdir(parents=True, exist_ok=True)
     cfg = snapshot(original_cfg, run_dir); source = Source(cfg)

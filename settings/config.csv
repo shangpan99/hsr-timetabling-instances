@@ -1,8 +1,8 @@
 key,value,description
 experiment_group,MAIN_EXPERIMENT,实验标签；所有案例统一使用
-output_root,outputs,Runtime output directory; no precomputed results are distributed
+output_root,results,结果根目录；相对项目根目录解析；主实验、TS/ALNS及可行性记录均写入这里
 fresh_full_run,FALSE,TRUE仅对完整1至6入口清空所选组结果；FALSE保留已有结果
-after_direct_require_direct_result,FALSE,RUN_2_TO_6可独立运行；设TRUE则要求先有Direct摘要
+after_direct_require_direct_result,FALSE,run_method.py可独立运行；设TRUE则要求先有Direct摘要
 train_selection_rule,entry_time,整组内的列车排序规则；本包仍使用该组全部K列车
 sampling_allocation_mode,manual,三类抽样个数显式给定；保留manual
 random_seed,TRUE,
@@ -25,7 +25,8 @@ sample_console_log,FALSE,
 sample_write_solver_log,FALSE,
 sample_pairwise_canonical_only,TRUE,
 write_sample_timetables,FALSE,是否保存每个子实例运行图；默认关闭
-direct_time_limit,1800,Direct求解时限秒
+direct_time_limit_K200_400,1800,K200/K300/K400每个案例的Direct求解时限秒
+direct_time_limit_K500_600,3600,K500/K600每个案例的Direct求解时限秒
 sample_time_limit,600,每个子实例求解时限秒
 packing_time_limit,1800,Packing求解时限秒
 inverse_time_limit,1800,每个alpha的Inverse求解时限秒
@@ -77,10 +78,8 @@ write_validation_details,TRUE,是否写原有运行图验证明细
 paper_output_mode,TRUE,保留原论文用精简输出模式
 write_direct_pairwise,FALSE,是否输出Direct顺序明细
 write_fullfix_pairwise,FALSE,是否输出Full-Fix顺序明细
-require_feasibility_pass,TRUE,实验求解前要求当前输入及模型口径已通过可行性检查
+require_feasibility_pass,TRUE,实验入口自动检查可行性；复用当前输入及模型参数下已通过的记录
 feasibility_lp_seconds,30,每个固定顺序LP的求解时限秒
 feasibility_mip_seconds,300,完整可行性MILP求解时限秒
 feasibility_threads,20,可行性求解线程数
 feasibility_candidates,3,尝试0至3个候选顺序；0直接完整MILP
-direct_time_limit_K500,3600,"Manuscript Direct MILP budget for K=500, seconds"
-direct_time_limit_K600,3600,"Manuscript Direct MILP budget for K=600, seconds"

@@ -13,7 +13,7 @@ from collections import Counter
 from pathlib import Path
 
 NUMBERING_VERSION = "original-and-copy-pool-v1"
-REGISTRY_PATH = Path(__file__).resolve().parent / "train_number_registry.csv"
+REGISTRY_PATH = Path(__file__).resolve().parents[1] / "data/train_number_registry.csv"
 FIELDS = ("source_id", "copy_index", "train_id")
 
 

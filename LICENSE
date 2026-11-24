@@ -9,8 +9,8 @@ License scope
 Software, configuration files, documentation and release metadata are
 licensed under the MIT License, except for the input data identified below.
 
-The CSV files under instances/ and trainset_tools/data/, together with
-train_number_registry.csv, are licensed under the Creative Commons
+The CSV files under data/instances/ and data/reference/, together with
+data/train_number_registry.csv, are licensed under the Creative Commons
 Attribution 4.0 International Public License (CC BY 4.0).
 
 The attribution name for these materials is:

@@ -1,7 +1,7 @@
-﻿section,parameter,value,unit,description
-input,trains,data/trains_344_original.csv,path,相对本config的路径；每次直接使用原始数据
-input,stations,data/stations.csv,path,相对本config的路径；每次直接使用原始数据
-input,segments,data/segments.csv,path,相对本config的路径；每次直接使用原始数据
+section,parameter,value,unit,description
+input,trains,../data/reference/trains_344_original.csv,path,相对 settings/generation_config.csv 所在目录；使用原始参考数据
+input,stations,../data/reference/stations.csv,path,相对 settings/generation_config.csv 所在目录；使用原始参考数据
+input,segments,../data/reference/segments.csv,path,相对 settings/generation_config.csv 所在目录；使用原始参考数据
 input,time_format,minutes,minutes/seconds/hhmm,整合主实验固定使用数值分钟，不支持在此改为秒或时分字符串
 input,unwrap_midnight,FALSE,boolean,HH:MM跨日是否自动展开；输入顺序必须正确，优先直接提供超过24的小时
 input,missing_type_policy,legacy_id,legacy_id/error,当前数据沿用原实验车次数字1至50为350其余300；更换数据建议error
@@ -19,7 +19,7 @@ generation,groups_per_size,10,groups,每个规模十组；合计50组
 generation,seed,32,integer,固定评分和具体分钟的种子；仅接受唯一最优结果；超时停止而不换种子
 generation,max_attempts_per_group,8,attempts,已证明时间分配无解或组重复时按固定规则重试；超时不换种子；绝不放宽B要求
 generation,allow_time_only_difference,TRUE,boolean,同一组成但相对时刻不同可算不同组；共同平移不算
-generation,output_root,../instances,path,生成组位于主实验根目录instances/K200_G01等；本配置在trainset_tools中，故使用../instances
+generation,output_root,../data/instances,path,案例生成和所有实验共用的输入目录；相对本配置所在目录；生成成功后覆盖选中案例
 copy,cap_mode,adaptive,adaptive/fixed,K>N时每个原始模板至少一份
 copy,extra_allowance,2,occurrences,adaptive上限=ceil(K/N)+本值，指总出现次数而非额外次数
 copy,max_total_occurrences,4,occurrences,仅在fixed模式生效

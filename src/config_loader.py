@@ -154,10 +154,10 @@ def _decode_config_bytes(path: Path) -> Tuple[str, str, bool, Dict[str, str]]:
 
 
 def load_config(
-    path: str | Path = "config.csv",
+    path: str | Path | None = None,
     defaults: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
-    path = Path(path)
+    path = project_root() / "settings/config.csv" if path is None else Path(path)
     if not path.exists():
         if defaults is None:
             raise FileNotFoundError(f"未找到配置文件：{path}")
@@ -267,7 +267,7 @@ def get_k_list(cfg: Mapping[str, Any], prefix: str, k: int) -> List[int]:
 
 
 def project_root() -> Path:
-    return Path(__file__).resolve().parent
+    return Path(__file__).resolve().parents[1]
 
 
 def resolve_project_path(value: Any, default: str | None = None) -> Path:
